@@ -1,0 +1,14 @@
+# ai-monitor-agent configuration. Copy to /etc/ai-monitor/agent.yaml.
+server_url: http://monitor.internal:8000
+agent_token: <server 生成>
+loki_url: http://monitor.internal:3100
+listen: 0.0.0.0:9400
+# advertise_address: 10.0.0.11:9400   # 可选：VictoriaMetrics 抓取地址，缺省自动探测本机 IP + listen 端口
+scrape_interval_seconds: 15
+heartbeat_interval_seconds: 30
+services:              # 可选：手动登记 nohup/tmux 启动的 vLLM
+  - name: qwen-72b
+    port: 8001
+    log_path: /var/log/vllm/qwen-72b.log
+    profiler_dir: /data/vllm_profile/qwen-72b
+artifacts_dir: /var/lib/ai-monitor-agent/artifacts

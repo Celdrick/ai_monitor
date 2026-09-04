@@ -1,0 +1,10 @@
+# 文件变更检测间隔由 VictoriaMetrics 启动参数 -promscrape.fileSDCheckInterval 控制（见 docker-compose.yml）
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+
+scrape_configs:
+  - job_name: ai-monitor-agent
+    file_sd_configs:
+      - files:
+          - /file_sd/agents.json

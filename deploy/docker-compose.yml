@@ -1,0 +1,103 @@
+name: ai-monitor
+
+services:
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.102.0
+    command:
+      - -retentionPeriod=6
+      - -promscrape.config=/etc/vm/scrape.yml
+      - -promscrape.fileSDCheckInterval=30s
+      - -storageDataPath=/storage
+      - -httpListenAddr=:8428
+    volumes:
+      - vm-data:/storage
+      - ./vm/scrape.yml:/etc/vm/scrape.yml:ro
+      - file_sd:/file_sd:ro
+    ports:
+      - "${VM_PORT:-8428}:8428"
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.1.0
+    command: -config.file=/etc/loki/config.yml
+    volumes:
+      - ./loki/config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aim}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aim}
+      POSTGRES_DB: ${POSTGRES_DB:-aim}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aim} -d ${POSTGRES_DB:-aim}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  server:
+    build: ../server
+    environment:
+      AIM_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-aim}:${POSTGRES_PASSWORD:-aim}@postgres:5432/${POSTGRES_DB:-aim}
+      AIM_JWT_SECRET: ${AIM_JWT_SECRET:?set AIM_JWT_SECRET in .env}
+      AIM_ADMIN_USERNAME: ${AIM_ADMIN_USERNAME:-admin}
+      AIM_ADMIN_PASSWORD: ${AIM_ADMIN_PASSWORD:?set AIM_ADMIN_PASSWORD in .env}
+      AIM_VM_URL: http://victoriametrics:8428
+      AIM_LOKI_URL: http://loki:3100
+      AIM_FILE_SD_PATH: /file_sd/agents.json
+    volumes:
+      - file_sd:/file_sd
+      - artifacts:/data/artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${SERVER_PORT:-8000}:8000"
+    restart: unless-stopped
+
+  web:
+    build: ../web
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+  # 本地/无 GPU 环境端到端验证用的假 Agent：docker compose --profile fake up -d
+  agent-fake-nvidia:
+    build: ../agent
+    profiles: ["fake"]
+    command: ["ai-monitor-agent", "--fake", "4", "--fake-vendor", "nvidia", "--host", "fake-gpu-01"]
+    environment:
+      AI_MONITOR_SERVER_URL: http://server:8000
+      AI_MONITOR_AGENT_TOKEN: ${FAKE_NVIDIA_TOKEN:-}
+      AI_MONITOR_ADVERTISE_ADDRESS: agent-fake-nvidia:9400
+    depends_on:
+      - server
+    restart: unless-stopped
+
+  agent-fake-ascend:
+    build: ../agent
+    profiles: ["fake"]
+    command: ["ai-monitor-agent", "--fake", "8", "--fake-vendor", "ascend", "--host", "fake-npu-01"]
+    environment:
+      AI_MONITOR_SERVER_URL: http://server:8000
+      AI_MONITOR_AGENT_TOKEN: ${FAKE_ASCEND_TOKEN:-}
+      AI_MONITOR_ADVERTISE_ADDRESS: agent-fake-ascend:9400
+    depends_on:
+      - server
+    restart: unless-stopped
+
+volumes:
+  vm-data:
+  loki-data:
+  pg-data:
+  file_sd:
+  artifacts:

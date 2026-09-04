@@ -1,0 +1,20 @@
+[Unit]
+Description=AI Monitor agent (GPU/NPU and host metrics exporter)
+Documentation=https://github.com/your-org/ai_monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/ai-monitor-agent/.venv/bin/ai-monitor-agent --config /etc/ai-monitor/agent.yaml
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+# npu-smi / nvidia libs are typically under these paths
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/Ascend/driver/tools
+StateDirectory=ai-monitor-agent
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
