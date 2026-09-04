@@ -27,6 +27,8 @@
 | 实时日志 | server 以 WebSocket 代理 Loki `/loki/api/v1/tail`，前端经 nginx 连接 `/api/logs/tail` |
 | 服务身份 | 以 `(host, name)` 唯一；Docker 服务 name = 容器名，进程服务 name = 手动登记名或 `vllm-<port>` |
 | 指标兼容 | PromQL 模板用 `or` 同时兼容 vLLM 新旧指标名（如 `kv_cache_usage_perc` / `gpu_cache_usage_perc`） |
+| 日志级别 | Agent 解析每行级别为 Loki 流标签 `level`（取值固定 6 种，基数有界） |
+| 已停止服务 | 服务列表默认显示全部（含 `stopped`），提供「隐藏已停止」开关 |
 
 ## 3. 数据流
 
@@ -120,7 +122,14 @@ class ServiceInfo:
 
 - `tailer.py`：每个 `log_source != "none"` 的服务一个 tail 任务。Docker：`container.logs(stream=True, follow=True, since=<cursor>, timestamps=True)`，cursor 为最后一条日志时间；文件：按 inode 检测轮转，记录 offset。状态持久化到 `<state_dir>/log_cursors.json`，每 5s 落盘，重启后从 cursor 续传，不重复推送。
 - `loki_client.py`：`LokiPusher.push(stream_labels, lines)`，`POST {loki_url}/loki/api/v1/push` JSON；按 `batch_lines` 或 `batch_interval_seconds` 触发；失败指数退避（1s→30s），期间缓冲不超过 `buffer_max_lines`，超出丢弃最旧并计数到 `agent_log_lines_dropped_total{service}`。
-- 流标签固定三项：`host`、`service`、`source`（`docker` / `file`）。不解析日志级别（避免高基数），由 Loki 查询时用 `|=` / `|~` 过滤。
+- 流标签固定四项：`host`、`service`、`source`（`docker` / `file`）、`level`。
+- `level_parser.py`：`parse_level(line, prev_level) -> str`，取值 `debug` / `info` / `warning` / `error` / `critical` / `unknown`。匹配规则按顺序：
+  1. vLLM 格式：行首 `^(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s+\d{2}-\d{2}`（如 `INFO 09-04 16:00:00 [engine.py:123] ...`）；
+  2. uvicorn 格式：行首 `^(DEBUG|INFO|WARNING|ERROR|CRITICAL):`；
+  3. python logging 常见格式：`\b(DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|FATAL)\b` 出现在前 64 个字符内（`WARN`→`warning`，`FATAL`→`critical`）；
+  4. 续行（行首为空白、`Traceback`、`File "`、或以 `^\w+Error:` / `^\w+Exception:` 开头）继承 `prev_level`；
+  5. 其他 → `unknown`。
+  同一批次内按 `level` 分成多个 stream 推送，保持行内顺序（Loki 要求每个 stream 内时间戳单调，续行使用与前一行相同或递增的纳秒时间戳）。
 - 服务从发现结果消失后停止其 tail 任务。
 
 ### 4.6 假 vLLM（`fake/vllm.py`，仅测试/演示）
@@ -129,7 +138,7 @@ class ServiceInfo:
 
 - `GET /metrics`：vLLM 风格文本（`vllm:num_requests_running`、`vllm:num_requests_waiting`、`vllm:kv_cache_usage_perc`、`vllm:prompt_tokens_total`、`vllm:generation_tokens_total`、`vllm:request_success_total`、`vllm:num_preemptions_total`、直方图 `vllm:time_to_first_token_seconds`、`vllm:time_per_output_token_seconds`、`vllm:e2e_request_latency_seconds`，带 `model_name` 标签），数值随时间随机游走。
 - `GET /v1/models` → `{"data":[{"id":"fake/Qwen2.5-7B-Instruct"}]}`；`GET /version` → `{"version":"0.11.0-fake"}`。
-- 每秒向 `<state_dir>/fake-vllm-<i>.log` 追加一行 INFO 日志（模拟 `Avg prompt throughput ...`），偶发 WARNING。
+- 每秒向 `<state_dir>/fake-vllm-<i>.log` 追加一行 vLLM 格式 INFO 日志（`INFO 09-04 16:00:00 [metrics.py:100] Avg prompt throughput ...`），约每 20 行一条 WARNING，约每 60 行一段 ERROR + 多行 Traceback（用于验证级别解析与续行继承）。
 
 自动登记为手动服务 `fake-vllm-<i>`，`log_path` 指向上述文件。
 
@@ -162,11 +171,11 @@ Alembic 迁移 `0002_services`。
 
 ### 5.3 API
 
-- `GET /api/services?active=true|false|all`（默认 `true`）→ `ServiceOut[]`：`{id, agent_id, host, name, source, port, metrics_url, pid, container_name, model, vllm_version, started_at, log_source, scrape_ok, active, last_seen_at, status}`。`status`：agent 离线 → `unknown`；`active=false` → `stopped`；`scrape_ok=false` → `degraded`；否则 `running`。
+- `GET /api/services?active=true|false|all`（默认 `all`）→ `ServiceOut[]`：`{id, agent_id, host, name, source, port, metrics_url, pid, container_name, model, vllm_version, started_at, log_source, scrape_ok, active, last_seen_at, status}`。`status`：agent 离线 → `unknown`；`active=false` → `stopped`；`scrape_ok=false` → `degraded`；否则 `running`。
 - `GET /api/services/{id}` → `ServiceDetail = ServiceOut + {cmdline, cwd, env, container_id, log_path, profiler_dir, first_seen_at}`。
 - `GET /api/agents/{id}/services` → 该机器的 `ServiceOut[]`。
-- `GET /api/logs/query?host=&service=&start=&end=&q=&limit=500&direction=backward` → 构造 LogQL `{host="<host>",service="<service>"}`，`q` 非空时追加 ` |= "<q>"`（转义 `"` 与 `\`）；代理 Loki `/loki/api/v1/query_range`；返回 `{"lines":[{"ts": "<RFC3339Nano>", "line": "..."}], "has_more": bool}`（按时间正序）。`limit` 上限 5000。
-- `WS /api/logs/tail?host=&service=&q=&token=<access JWT>`：校验 JWT 后连接 Loki `ws://loki:3100/loki/api/v1/tail?query=...&delay_for=0&limit=100&start=<now-1m ns>`，把每条 `streams[].values` 转成 `{"ts","line"}` JSON 逐条转发；任一端断开即关闭另一端。JWT 放 query 参数是因为浏览器 WebSocket 无法设置 Header。
+- `GET /api/logs/query?host=&service=&level=&q=&start=&end=&limit=500&direction=backward` → 构造 LogQL `{host="<host>",service="<service>"}`；`level` 可重复（如 `level=error&level=warning`），非空时追加 `,level=~"error|warning"`（每个值须在 6 种取值内）；`q` 非空时追加 ` |= "<q>"`（转义 `"` 与 `\`）；代理 Loki `/loki/api/v1/query_range`；返回 `{"lines":[{"ts": "<RFC3339Nano>", "level": "info", "line": "..."}], "has_more": bool}`（按时间正序，`level` 取自 stream 标签）。`limit` 上限 5000。
+- `WS /api/logs/tail?host=&service=&level=&q=&token=<access JWT>`：校验 JWT 后连接 Loki `ws://loki:3100/loki/api/v1/tail?query=...&delay_for=0&limit=100&start=<now-1m ns>`（`query` 构造规则同上），把每条 `streams[].values` 转成 `{"ts","level","line"}` JSON 逐条转发；任一端断开即关闭另一端。JWT 放 query 参数是因为浏览器 WebSocket 无法设置 Header。
 - 指标模板新增（params：`host`、`service`，部分含 `window`，白名单 `^[0-9]+[smh]$`，默认 `1m`）：
 
 | name | expr |
@@ -192,11 +201,11 @@ Alembic 迁移 `0002_services`。
 ## 6. Web 变更（`web/`）
 
 - 导航新增「服务」`/services`。
-- `ServicesPage`：表格（服务名、机器、模型、vLLM 版本、端口、来源 Tag、状态 Tag（running 绿 / degraded 橙 / stopped 灰 / unknown 红）、当前 running/waiting（来自 `cluster_vllm_running_by_service` / `cluster_vllm_waiting_by_service` 即时查询）、最后心跳），搜索框按名称/机器/模型过滤，`active` 开关显示已停止服务。
+- `ServicesPage`：默认显示全部服务（含已停止）。表格（服务名、机器、模型、vLLM 版本、端口、来源 Tag、状态 Tag（running 绿 / degraded 橙 / stopped 灰 / unknown 红）、当前 running/waiting（来自 `cluster_vllm_running_by_service` / `cluster_vllm_waiting_by_service` 即时查询；stopped 显示 `-`）、最后心跳），默认排序：running/degraded/unknown 在前、stopped 在后，再按机器与名称。搜索框按名称/机器/模型过滤；「隐藏已停止」开关（默认关闭），状态列支持筛选。
 - `ServiceDetailPage` `/services/:id`：顶部 Descriptions（机器、模型、版本、端口、来源、容器、PID、启动时间、状态）。Tabs：
   - 指标：请求（running / waiting 双线）、Token 吞吐（prompt / generation tokens/s）、TTFT p50/p90/p99、TPOT p50/p90/p99、E2E p50/p90/p99、KV cache 使用率、抢占速率。`window` 由时间范围推导：range ≤ 6h 用 `1m`，≤ 7d 用 `5m`，否则 `30m`。
   - 进程：启动命令（可复制）、工作目录、环境变量表（脱敏后）、日志来源与路径、profiler 目录。
-  - 日志：顶部「实时」开关与关键词输入；实时开启时通过 WebSocket 追加显示（最多保留 2000 行，自动滚动可暂停）；关闭时按全局时间范围调用 `/api/logs/query`（默认 500 行，「加载更早」按钮翻页）。等宽字体，WARNING/ERROR 关键字高亮。
+  - 日志：顶部「实时」开关、级别多选（debug / info / warning / error / critical / unknown，默认全选）与关键词输入；实时开启时通过 WebSocket 追加显示（最多保留 2000 行，自动滚动可暂停）；关闭时按全局时间范围调用 `/api/logs/query`（默认 500 行，「加载更早」按钮翻页）。等宽字体，按行的 `level` 着色（warning 橙、error/critical 红、debug 灰）。
 - `OverviewPage`：新增「vLLM 服务」卡片（running 数 / 总数）与服务表（前 10 个按 waiting 降序），点击进详情。
 - `HostDetailPage`：新增「服务」表格（该机器服务）。
 - `api/services.ts`、`api/logs.ts`（含 `openLogTail(host, service, q, onLine)` 基于 `WebSocket`，URL 用当前页面协议推导 `ws/wss`）。
@@ -212,7 +221,7 @@ Alembic 迁移 `0002_services`。
 
 - 环境变量脱敏在 Agent 侧完成，server 不接触明文。
 - WebSocket tail 的 JWT 只接受 access token；过期即拒绝连接（4401）。
-- LogQL 由 server 拼接，`host`/`service` 只允许 `^[A-Za-z0-9_.-]+$`，关键词做字符串转义后置于 `|= "..."`，不允许用户传原始 LogQL。
+- LogQL 由 server 拼接，`host`/`service` 只允许 `^[A-Za-z0-9_.-]+$`，`level` 只允许 6 种固定取值，关键词做字符串转义后置于 `|= "..."`，不允许用户传原始 LogQL。
 
 ## 9. 错误处理与降级
 
@@ -224,7 +233,7 @@ Alembic 迁移 `0002_services`。
 
 ## 10. 测试
 
-- Agent：Docker 发现用 fake `docker` 客户端对象（列出预构造容器 attrs：host 网络 / 端口映射 / 仅容器 IP 三种）；进程发现用 fake `psutil` 进程列表与连接；registry 合并优先级；metrics_proxy 用 respx 模拟两个服务（一个 500）并断言透传文本含 `host`/`service` 标签、过滤掉 `python_*`；tailer 用临时文件模拟追加与轮转、cursor 持久化；LokiPusher 用 respx 断言批量与退避、丢弃计数。
-- Server：心跳 upsert 与 `active` 翻转；services API 状态计算四态；logs query 的 LogQL 构造与转义；tail WS 用假 Loki WS 服务端（`websockets` 库起临时 server）验证转发与鉴权失败；新模板渲染与 `window` 校验。
-- Web：`window` 推导与 LogQL 参数构造单元测试；日志视图行数上限与高亮的组件测试。
-- 端到端：compose `--profile fake`（含 `--fake-vllm`），验证：`GET /api/services` 出现 3 个 `running` 服务；VM 中 `count(vllm:num_requests_running)` = 3；`GET /api/logs/query` 返回假日志；Playwright 打开服务详情，指标图有数据、日志 Tab 实时出现新行。
+- Agent：Docker 发现用 fake `docker` 客户端对象（列出预构造容器 attrs：host 网络 / 端口映射 / 仅容器 IP 三种）；进程发现用 fake `psutil` 进程列表与连接；registry 合并优先级；metrics_proxy 用 respx 模拟两个服务（一个 500）并断言透传文本含 `host`/`service` 标签、过滤掉 `python_*`；`parse_level` 覆盖 vLLM / uvicorn / python logging / Traceback 续行 / 未知五类样本；tailer 用临时文件模拟追加与轮转、cursor 持久化；LokiPusher 用 respx 断言按 level 分流、批量与退避、丢弃计数。
+- Server：心跳 upsert 与 `active` 翻转；services API 状态计算四态与默认 `all`；logs query 的 LogQL 构造（含 `level=~` 与非法 level 400）与转义；tail WS 用假 Loki WS 服务端（`websockets` 库起临时 server）验证转发与鉴权失败；新模板渲染与 `window` 校验。
+- Web：`window` 推导与日志查询参数构造单元测试；日志视图行数上限与按 level 着色的组件测试；服务表默认排序（stopped 在后）测试。
+- 端到端：compose `--profile fake`（含 `--fake-vllm`），验证：`GET /api/services` 出现 3 个 `running` 服务；停掉一个假 Agent 后对应服务变为 `unknown`，重启后恢复；VM 中 `count(vllm:num_requests_running)` = 3；`GET /api/logs/query?level=error` 只返回 ERROR 及其 Traceback 续行；Playwright 打开服务详情，指标图有数据、日志 Tab 实时出现新行且 WARNING 行着色。
