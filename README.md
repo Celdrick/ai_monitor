@@ -85,6 +85,15 @@ docker compose --profile fake up -d --build agent-fake-nvidia agent-fake-ascend
 - `GET /api/metrics/query?template=cluster_avg_util` 返回数值；`query_range?template=host_device_util&host=fake-gpu-01` 返回 4 条 series；未知模板 400、未登录 401。
 - Playwright（Chromium）登录后：总览页显示 2/2 在线、12 卡、各机器利用率折线；`/hosts/fake-npu-01` 显示 8 张 `Ascend 910B4` 卡表与利用率/显存/温度/功耗折线，无 JS 错误。
 
+### 第二期已验证（2026-09-04）
+
+- `agent` 150 个测试、`server` 125 个测试、`web` 28 个测试全部通过。
+- `GET /api/services` 返回 3 个 `running` 服务（fake-gpu-01 上 `fake-vllm-0/1`，fake-npu-01 上 `fake-vllm-0`），模型与版本来自假 vLLM 的 `/v1/models`、`/version`。
+- VictoriaMetrics 中 `count(vllm:num_requests_running)` = 3；`query_range?template=vllm_ttft_quantiles` 返回 p50/p90/p99 三条 series。
+- `GET /api/logs/query` 返回带 `level` 的日志；`level=error` 只返回 ERROR 行及其 Traceback 续行（级别继承为 error）。
+- 停掉 `agent-fake-ascend` 约 2 分钟后对应服务变为 `unknown`，重启后恢复 `running`。
+- Playwright：总览出现服务卡片；`/services` 列出 3 行；服务详情指标 Tab 7 张图；日志 Tab 实时出现 INFO/WARNING，无 JS 错误。
+
 ## 开发
 
 ```bash
