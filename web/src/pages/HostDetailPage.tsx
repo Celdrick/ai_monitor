@@ -4,8 +4,10 @@ import { useCallback, useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { sampleValue, type InstantResult, type MetricLabels } from '../api/metrics'
 import { StatusTag } from '../components/AgentsTable'
+import { ServicesTable } from '../components/ServicesTable'
 import { TimeSeriesChart } from '../components/TimeSeriesChart'
 import { useAgents, useInstant, useRange } from '../hooks/useMetrics'
+import { useAgentServices } from '../hooks/useServices'
 import { formatDateTime, formatGiB, formatRelative } from '../utils/format'
 
 interface DeviceRow {
@@ -90,6 +92,7 @@ export function HostDetailPage() {
 
   const agents = useAgents()
   const agent = agents.data?.find((a) => a.host === host)
+  const services = useAgentServices(agent?.id)
 
   const devices = useInstant('host_devices', params, enabled)
   const devMemUsedNow = useInstant('host_device_mem_used', params, enabled)
@@ -197,6 +200,30 @@ export function HostDetailPage() {
             loading={devices.isLoading}
             columns={deviceColumns}
             dataSource={deviceRows}
+            pagination={false}
+          />
+        )}
+      </Card>
+
+      <Card
+        title="服务"
+        size="small"
+        extra={
+          <Typography.Text type="secondary">
+            {services.data ? `${services.data.filter((s) => s.status === 'running').length} 运行中 / ${services.data.length}` : null}
+          </Typography.Text>
+        }
+      >
+        {services.error ? (
+          <Alert type="error" showIcon message="服务列表查询失败" />
+        ) : (
+          <ServicesTable
+            data={services.data}
+            loading={!!agent && services.isLoading}
+            compact
+            hideHost
+            statusFilters={false}
+            size="small"
             pagination={false}
           />
         )}

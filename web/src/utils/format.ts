@@ -30,7 +30,18 @@ export function formatDateTime(iso: string | null | undefined): string {
   return d.isValid() ? d.format('YYYY-MM-DD HH:mm:ss') : iso
 }
 
-export type Unit = 'percent' | 'bytes' | 'celsius' | 'watts'
+export type Unit = 'percent' | 'bytes' | 'celsius' | 'watts' | 'seconds' | 'rate' | 'count'
+
+/** Seconds → "123 ms" below 1s, otherwise "1.23 s". */
+export function formatSeconds(v: number, axis = false): string {
+  if (!Number.isFinite(v)) return '-'
+  if (Math.abs(v) < 1) return `${axis ? trimNumber(v * 1000) : (v * 1000).toFixed(0)} ms`
+  return `${axis ? trimNumber(v) : v.toFixed(2)} s`
+}
+
+function trimNumber(v: number): string {
+  return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(2)))
+}
 
 export function formatByUnit(v: number, unit?: Unit): string {
   switch (unit) {
@@ -42,6 +53,12 @@ export function formatByUnit(v: number, unit?: Unit): string {
       return `${v.toFixed(0)}°C`
     case 'watts':
       return `${v.toFixed(0)} W`
+    case 'seconds':
+      return formatSeconds(v)
+    case 'rate':
+      return `${v.toFixed(2)} /s`
+    case 'count':
+      return Number.isInteger(v) ? String(v) : v.toFixed(1)
     default:
       return Number.isInteger(v) ? String(v) : v.toFixed(2)
   }
@@ -57,6 +74,10 @@ export function axisLabelByUnit(v: number, unit?: Unit): string {
       return `${v}°C`
     case 'watts':
       return `${v} W`
+    case 'seconds':
+      return formatSeconds(v, true)
+    case 'rate':
+      return `${trimNumber(v)}/s`
     default:
       return String(v)
   }

@@ -40,6 +40,21 @@ export type TemplateName =
   | 'host_mem_total'
   | 'host_disk_used'
   | 'host_disk_total'
+  // vLLM per-service (params: host, service, optional window)
+  | 'vllm_running'
+  | 'vllm_waiting'
+  | 'vllm_kv_cache_perc'
+  | 'vllm_prompt_tokens_rate'
+  | 'vllm_generation_tokens_rate'
+  | 'vllm_request_rate'
+  | 'vllm_preemption_rate'
+  | 'vllm_ttft_quantiles'
+  | 'vllm_tpot_quantiles'
+  | 'vllm_e2e_quantiles'
+  | 'vllm_scrape_ok'
+  // vLLM cluster-wide instant (labels: host, service)
+  | 'cluster_vllm_running_by_service'
+  | 'cluster_vllm_waiting_by_service'
 
 export async function queryInstant(
   template: TemplateName | string,
