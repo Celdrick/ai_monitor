@@ -6,6 +6,7 @@ services:
     command:
       - -retentionPeriod=6
       - -promscrape.config=/etc/vm/scrape.yml
+      - -promscrape.fileSDCheckInterval=30s
       - -storageDataPath=/storage
       - -httpListenAddr=:8428
     volumes:

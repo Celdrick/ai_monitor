@@ -65,6 +65,18 @@ docker compose --profile fake up -d --build agent-fake-nvidia agent-fake-ascend
 
 `fake-gpu-01` 模拟 4 张 NVIDIA 卡，`fake-npu-01` 模拟 8 张 Ascend 卡。
 
+若宿主机 8080/8000/8428/3100 端口被占用，在 `.env` 中修改 `WEB_PORT` / `SERVER_PORT` / `VM_PORT` / `LOKI_PORT`。
+
+### 第一期已验证（2026-09-04）
+
+在无 GPU 的开发机上按上述步骤执行，结果：
+
+- `agent` 55 个测试、`server` 60 个测试、`web` 9 个测试全部通过；三个镜像构建成功。
+- 两个假 Agent 心跳后 `GET /api/agents` 均为 `online`，server 生成的 `file_sd/agents.json` 含两条 target。
+- VictoriaMetrics 中 `count(accel_mem_total_bytes)` = 12；`accel_ecc_errors_total` 仅出现在 `vendor="nvidia"`，`accel_health` 两种硬件均有。
+- `GET /api/metrics/query?template=cluster_avg_util` 返回数值；`query_range?template=host_device_util&host=fake-gpu-01` 返回 4 条 series；未知模板 400、未登录 401。
+- Playwright（Chromium）登录后：总览页显示 2/2 在线、12 卡、各机器利用率折线；`/hosts/fake-npu-01` 显示 8 张 `Ascend 910B4` 卡表与利用率/显存/温度/功耗折线，无 JS 错误。
+
 ## 开发
 
 ```bash
