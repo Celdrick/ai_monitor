@@ -63,7 +63,15 @@ docker compose up -d --build victoriametrics loki postgres server web
 docker compose --profile fake up -d --build agent-fake-nvidia agent-fake-ascend
 ```
 
-`fake-gpu-01` 模拟 4 张 NVIDIA 卡，`fake-npu-01` 模拟 8 张 Ascend 卡。
+`fake-gpu-01` 模拟 4 张 NVIDIA 卡与 2 个 vLLM 服务，`fake-npu-01` 模拟 8 张 Ascend 卡与 1 个 vLLM 服务；假 vLLM 提供 `/metrics`、`/v1/models`、`/version` 并持续写入含 WARNING/ERROR 的日志。
+
+### vLLM 服务监测
+
+- **自动发现**：Docker 容器（命令或镜像含 `vllm`；支持 host 网络、端口映射、仅容器 IP 三种网络形态）与本机进程（命令行含 `vllm serve` / `api_server`）。
+- **手动登记**：nohup/tmux 启动且需要采集日志文件的服务，在 `/etc/ai-monitor/agent.yaml` 的 `services` 段登记 `name`、`port`、`log_path`。
+- **指标**：各服务 `/metrics` 中的 `vllm:*` 指标附加 `host`、`service` 标签后并入 Agent `/metrics`；页面展示请求队列、Token 吞吐、TTFT/TPOT/E2E 分位、KV cache、抢占。
+- **日志**：`docker logs` 或日志文件推送 Loki（保留 180 天），流标签 `host, service, source, level`；`level` 由 Agent 解析（vLLM / uvicorn / python logging 格式，Traceback 续行继承前一行级别）。页面支持实时 tail、级别筛选与关键词检索。
+- **进程信息**：启动参数、工作目录、环境变量（名称含 `KEY/TOKEN/SECRET/PASSWORD` 的值在 Agent 侧脱敏）、模型、vLLM 版本。
 
 若宿主机 8080/8000/8428/3100 端口被占用，在 `.env` 中修改 `WEB_PORT` / `SERVER_PORT` / `VM_PORT` / `LOKI_PORT`。
 
@@ -94,7 +102,7 @@ cd web && npm install && npm run dev             # /api 代理到 http://localho
 
 ## 分期
 
-1. 基础监控（本期）：硬件/主机指标、机器注册与心跳、认证、总览与机器详情、compose 部署。
-2. vLLM 监测：服务发现、`/metrics` 透传、进程信息、日志到 Loki、服务详情与实时日志。
+1. 基础监控（已完成）：硬件/主机指标、机器注册与心跳、认证、总览与机器详情、compose 部署。
+2. vLLM 监测（本期）：服务发现、`/metrics` 透传、进程信息、日志到 Loki、服务详情与实时日志。
 3. 调试能力：torch profiler、py-spy、nsys、msprof 远程触发与产物管理。
 4. 企业能力：告警与通知、利用率报表、审计与用户管理。
