@@ -8,7 +8,7 @@ from .vm_client import VMClient, VMError
 
 router = APIRouter(prefix="/api/metrics", tags=["metrics"])
 
-ALLOWED_PARAMS = ("host", "index")
+ALLOWED_PARAMS = ("host", "index", "service", "window")
 
 
 def get_vm_client(request: Request) -> VMClient:
@@ -26,12 +26,16 @@ def _render_or_400(template: str, params: dict[str, str]) -> str:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
-def _params(host: str | None, index: str | None) -> dict[str, str]:
+def _params(
+    host: str | None,
+    index: str | None,
+    service: str | None = None,
+    window: str | None = None,
+) -> dict[str, str]:
     out: dict[str, str] = {}
-    if host is not None:
-        out["host"] = host
-    if index is not None:
-        out["index"] = index
+    for key, value in zip(ALLOWED_PARAMS, (host, index, service, window)):
+        if value is not None:
+            out[key] = value
     return out
 
 
@@ -42,9 +46,11 @@ async def query(
     template: str = Query(...),
     host: str | None = Query(None),
     index: str | None = Query(None),
+    service: str | None = Query(None),
+    window: str | None = Query(None),
     time: float | None = Query(None),
 ) -> Any:
-    expr = _render_or_400(template, _params(host, index))
+    expr = _render_or_400(template, _params(host, index, service, window))
     try:
         return await get_vm_client(request).query(expr, time)
     except VMError as exc:
@@ -61,8 +67,10 @@ async def query_range(
     step: str = Query(...),
     host: str | None = Query(None),
     index: str | None = Query(None),
+    service: str | None = Query(None),
+    window: str | None = Query(None),
 ) -> Any:
-    expr = _render_or_400(template, _params(host, index))
+    expr = _render_or_400(template, _params(host, index, service, window))
     try:
         return await get_vm_client(request).query_range(expr, start, end, step)
     except VMError as exc:

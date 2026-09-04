@@ -7,9 +7,16 @@ from sqlalchemy.exc import IntegrityError
 
 from ..auth.deps import AdminUser, CurrentUser, SessionDep, SettingsDep, bearer_token
 from ..config import Settings
-from ..models import Agent
+from ..models import Agent, Service
 from .file_sd import write_file_sd
-from .schemas import AgentCreate, AgentOut, AgentStatus, AgentWithToken, HeartbeatRequest
+from .schemas import (
+    AgentCreate,
+    AgentOut,
+    AgentStatus,
+    AgentWithToken,
+    HeartbeatRequest,
+    ServiceIn,
+)
 from .tokens import generate_agent_token, hash_agent_token
 
 log = logging.getLogger(__name__)
@@ -51,6 +58,59 @@ def to_out(agent: Agent, settings: Settings, now: datetime | None = None) -> Age
         last_seen_at=_as_utc(agent.last_seen_at),
         status=agent_status(agent, settings, now),
     )
+
+
+def _started_at(value: float | None) -> datetime | None:
+    if value is None:
+        return None
+    return datetime.fromtimestamp(value, tz=timezone.utc)
+
+
+def _apply_service(row: Service, svc: ServiceIn) -> None:
+    row.source = svc.source
+    row.port = svc.port
+    row.metrics_url = svc.metrics_url
+    row.pid = svc.pid
+    row.container_id = svc.container_id
+    row.container_name = svc.container_name
+    row.log_source = svc.log_source
+    row.log_path = svc.log_path
+    row.profiler_dir = svc.profiler_dir
+    row.model = svc.model
+    row.vllm_version = svc.vllm_version
+    row.started_at = _started_at(svc.started_at)
+    row.cmdline = svc.cmdline
+    row.cwd = svc.cwd
+    row.env_json = dict(svc.env)
+    row.scrape_ok = svc.scrape_ok
+
+
+async def upsert_services(session, agent: Agent, services: list[ServiceIn], now: datetime) -> None:
+    """Sync the agent's services with a heartbeat payload (no commit).
+
+    Services present in the payload are inserted or fully updated and marked
+    active; existing services absent from the payload are marked inactive.
+    """
+    existing = {
+        s.name: s
+        for s in (
+            await session.execute(select(Service).where(Service.agent_id == agent.id))
+        ).scalars()
+    }
+    seen: set[str] = set()
+    for svc in services:
+        row = existing.get(svc.name)
+        if row is None:
+            row = Service(agent_id=agent.id, name=svc.name, first_seen_at=now)
+            session.add(row)
+            existing[svc.name] = row
+        _apply_service(row, svc)
+        row.active = True
+        row.last_seen_at = now
+        seen.add(svc.name)
+    for name, row in existing.items():
+        if name not in seen and row.active:
+            row.active = False
 
 
 async def _get_or_404(session, agent_id: int) -> Agent:
@@ -117,7 +177,9 @@ async def heartbeat(
     agent.version = body.agent_version
     agent.hardware_vendor = body.hardware_vendor
     agent.device_count = body.device_count
-    agent.last_seen_at = _utcnow()
+    now = _utcnow()
+    agent.last_seen_at = now
+    await upsert_services(session, agent, body.services, now)
     await session.commit()
 
     seen = (
