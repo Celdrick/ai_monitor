@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 from prometheus_client import CollectorRegistry, generate_latest
 from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily, Metric
 
 from .collectors.base import DeviceCollector, DeviceSample, HostSample
 from .collectors.host import HostCollector
+
+if TYPE_CHECKING:  # avoid import cycles at runtime; duck-typed below
+    from .logs.loki_client import LokiPusher
+    from .vllm.metrics_proxy import VllmMetricsProxy
 
 log = logging.getLogger(__name__)
 
@@ -25,10 +29,14 @@ class AgentMetricsCollector:
         host: str,
         device_collectors: list[DeviceCollector],
         host_collector: HostCollector | None,
+        proxy: "VllmMetricsProxy | None" = None,
+        pusher: "LokiPusher | None" = None,
     ) -> None:
         self.host = host
         self.device_collectors = list(device_collectors)
         self.host_collector = host_collector
+        self.proxy = proxy
+        self.pusher = pusher
 
     # prometheus_client calls describe() at registration; returning [] means
     # "no static description", which avoids running collectors on register.
@@ -62,6 +70,32 @@ class AgentMetricsCollector:
         if host_sample is not None:
             yield from self._host_families(host_sample)
         yield up
+        yield from self._service_families()
+
+    def _service_families(self) -> Iterable[Metric]:
+        services = GaugeMetricFamily("agent_vllm_services", "Number of vLLM services known to this agent", labels=["host"])
+        scrape = GaugeMetricFamily(
+            "agent_vllm_scrape_success", "1 if the last vLLM /metrics scrape succeeded", labels=["host", "service"]
+        )
+        dropped = CounterMetricFamily(
+            "agent_log_lines_dropped", "Log lines dropped because the Loki buffer was full", labels=["host", "service"]
+        )
+        count = 0
+        if self.proxy is not None:
+            try:
+                count = len(self.proxy.registry.snapshot())
+                for name, ok in sorted(self.proxy.scrape_status().items()):
+                    scrape.add_metric([self.host, name], 1 if ok else 0)
+            except Exception as exc:
+                log.warning("vllm proxy status failed: %s", exc)
+        services.add_metric([self.host], count)
+        if self.pusher is not None:
+            for name, n in sorted(self.pusher.dropped.items()):
+                dropped.add_metric([self.host, name], n)
+        yield services
+        yield scrape
+        if self.pusher is not None:
+            yield dropped
 
     def _device_families(self, samples: list[DeviceSample]) -> Iterable[Metric]:
         util = GaugeMetricFamily("accel_util_percent", "Accelerator utilization percent", labels=DEVICE_LABELS)

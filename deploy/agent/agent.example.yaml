@@ -11,4 +11,14 @@ services:              # 可选：手动登记 nohup/tmux 启动的 vLLM
     port: 8001
     log_path: /var/log/vllm/qwen-72b.log
     profiler_dir: /data/vllm_profile/qwen-72b
+discovery:
+  docker: true
+  process: true
+  interval_seconds: 30
+logs:
+  enabled: true
+  batch_lines: 500
+  batch_interval_seconds: 1
+  buffer_max_lines: 10000
+state_dir: /var/lib/ai-monitor-agent/state
 artifacts_dir: /var/lib/ai-monitor-agent/artifacts
