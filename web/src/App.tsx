@@ -9,6 +9,8 @@ import { HostDetailPage } from './pages/HostDetailPage'
 import { HostsPage } from './pages/HostsPage'
 import { LoginPage } from './pages/LoginPage'
 import { OverviewPage } from './pages/OverviewPage'
+import { ServiceDetailPage } from './pages/ServiceDetailPage'
+import { ServicesPage } from './pages/ServicesPage'
 import { TimeRangeProvider } from './time/TimeRangeContext'
 
 const queryClient = new QueryClient({
@@ -41,6 +43,8 @@ export default function App() {
                     <Route path="/" element={<OverviewPage />} />
                     <Route path="/hosts" element={<HostsPage />} />
                     <Route path="/hosts/:host" element={<HostDetailPage />} />
+                    <Route path="/services" element={<ServicesPage />} />
+                    <Route path="/services/:id" element={<ServiceDetailPage />} />
                   </Route>
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

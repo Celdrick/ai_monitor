@@ -11,9 +11,12 @@ from .auth.router import router as auth_router
 from .auth.security import hash_password
 from .config import Settings, get_settings
 from .db import Base, make_engine, make_sessionmaker
+from .logs.loki_client import LokiClient
+from .logs.router import router as logs_router
 from .metrics.router import router as metrics_router
 from .metrics.vm_client import VMClient
 from .models import User
+from .services.router import router as services_router
 
 log = logging.getLogger(__name__)
 
@@ -48,11 +51,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             yield
         finally:
             await app.state.vm_client.aclose()
+            await app.state.loki.aclose()
             await engine.dispose()
 
     app = FastAPI(title="ai-monitor-server", lifespan=lifespan)
     app.state.settings = settings
     app.state.vm_client = VMClient(settings.vm_url)
+    app.state.loki = LokiClient(settings.loki_url)
 
     if settings.cors_origins:
         app.add_middleware(
@@ -70,6 +75,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(agents_router)
     app.include_router(metrics_router)
+    app.include_router(services_router)
+    app.include_router(logs_router)
     return app
 
 

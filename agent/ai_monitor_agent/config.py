@@ -15,6 +15,23 @@ class ManualService(BaseModel):
     profiler_dir: str | None = None
 
 
+class DiscoveryConfig(BaseModel):
+    """Which vLLM discovery sources run and how often."""
+
+    docker: bool = True  # auto-disabled when /var/run/docker.sock is unavailable
+    process: bool = True
+    interval_seconds: int = 30
+
+
+class LogsConfig(BaseModel):
+    """Log shipping to Loki (auto-disabled when ``loki_url`` is empty)."""
+
+    enabled: bool = True
+    batch_lines: int = 500
+    batch_interval_seconds: float = 1.0
+    buffer_max_lines: int = 10000
+
+
 class AgentConfig(BaseModel):
     server_url: str
     agent_token: str
@@ -24,6 +41,9 @@ class AgentConfig(BaseModel):
     scrape_interval_seconds: int = 15
     heartbeat_interval_seconds: int = 30
     services: list[ManualService] = Field(default_factory=list)
+    discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
+    logs: LogsConfig = Field(default_factory=LogsConfig)
+    state_dir: str = "/var/lib/ai-monitor-agent/state"
     artifacts_dir: str = "/var/lib/ai-monitor-agent/artifacts"
 
     @property

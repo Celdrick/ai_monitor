@@ -4,8 +4,11 @@
 # 用法：
 #   ./install-agent.sh --mode docker  --server http://monitor:8000 --token XXXX [--vendor nvidia|ascend] [--image ai-monitor-agent:latest]
 #   ./install-agent.sh --mode systemd --server http://monitor:8000 --token XXXX [--src /path/to/repo/agent]
+# 通用可选参数：
+#   --loki http://monitor:3100   日志推送地址（缺省：与 --server 同主机的 3100 端口）
+#   --log-dir /var/log/vllm      vLLM 日志文件所在目录，可重复；Docker 模式会以只读方式挂载进容器
 #
-# 两种模式都会写入 /etc/ai-monitor/agent.yaml（已存在则不覆盖）。
+# 两种模式都会写入 /etc/ai-monitor/agent.yaml（已存在则不覆盖）。手动登记 nohup 启动的 vLLM 请编辑该文件的 services 段。
 set -euo pipefail
 
 MODE=""
@@ -17,8 +20,9 @@ SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)/agent"
 CONFIG_DIR=/etc/ai-monitor
 CONFIG_FILE="$CONFIG_DIR/agent.yaml"
 LOKI_URL=""
+LOG_DIRS=()
 
-usage() { sed -n '2,10p' "$0"; exit 1; }
+usage() { sed -n '2,13p' "$0"; exit 1; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,6 +33,7 @@ while [[ $# -gt 0 ]]; do
     --image) IMAGE="$2"; shift 2 ;;
     --src) SRC_DIR="$2"; shift 2 ;;
     --loki) LOKI_URL="$2"; shift 2 ;;
+    --log-dir) LOG_DIRS+=("$2"); shift 2 ;;
     -h|--help) usage ;;
     *) echo "unknown arg: $1"; usage ;;
   esac
@@ -44,6 +49,13 @@ detect_vendor() {
 [[ -z "$VENDOR" ]] && VENDOR="$(detect_vendor)"
 echo "hardware vendor: $VENDOR"
 
+# 缺省 Loki 地址：与 server 同主机，端口 3100
+if [[ -z "$LOKI_URL" ]]; then
+  server_host="${SERVER_URL#*://}"; server_host="${server_host%%/*}"; server_host="${server_host%%:*}"
+  LOKI_URL="http://${server_host}:3100"
+fi
+echo "loki url: $LOKI_URL"
+
 write_config() {
   sudo mkdir -p "$CONFIG_DIR"
   if [[ -f "$CONFIG_FILE" ]]; then
@@ -53,11 +65,27 @@ write_config() {
   sudo tee "$CONFIG_FILE" >/dev/null <<EOF
 server_url: ${SERVER_URL}
 agent_token: ${TOKEN}
-loki_url: ${LOKI_URL:-null}
+loki_url: ${LOKI_URL}
 listen: 0.0.0.0:9400
 scrape_interval_seconds: 15
 heartbeat_interval_seconds: 30
+# 手动登记 nohup/tmux 启动的 vLLM（Docker 容器会自动发现，无需登记）：
+# services:
+#   - name: qwen-72b
+#     port: 8001
+#     log_path: /var/log/vllm/qwen-72b.log
+#     profiler_dir: /data/vllm_profile/qwen-72b
 services: []
+discovery:
+  docker: true
+  process: true
+  interval_seconds: 30
+logs:
+  enabled: true
+  batch_lines: 500
+  batch_interval_seconds: 1
+  buffer_max_lines: 10000
+state_dir: /var/lib/ai-monitor-agent/state
 artifacts_dir: /var/lib/ai-monitor-agent/artifacts
 EOF
   sudo chmod 600 "$CONFIG_FILE"
@@ -81,6 +109,7 @@ install_docker() {
       dev_args+=(-e LD_LIBRARY_PATH=/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/driver)
       ;;
   esac
+  for d in ${LOG_DIRS[@]+"${LOG_DIRS[@]}"}; do dev_args+=(-v "$d":"$d":ro); done
   docker rm -f ai-monitor-agent >/dev/null 2>&1 || true
   docker run -d --name ai-monitor-agent --restart=always \
     --net=host --pid=host \

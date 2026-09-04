@@ -82,6 +82,41 @@ async def test_query_range_passthrough(client, admin_headers, vm_mock):
     assert sent["step"] == "15s"
 
 
+async def test_query_range_service_and_window(client, admin_headers, vm_mock):
+    route = vm_mock.get("/api/v1/query_range").mock(
+        return_value=httpx.Response(
+            200, json={"status": "success", "data": {"resultType": "matrix", "result": []}}
+        )
+    )
+    resp = await client.get(
+        "/api/metrics/query_range",
+        params={
+            "template": "vllm_request_rate",
+            "host": "gpu-01",
+            "service": "qwen-72b",
+            "window": "5m",
+            "start": 1700000000,
+            "end": 1700003600,
+            "step": "60s",
+        },
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    sent = route.calls.last.request.url.params
+    assert sent["query"] == 'sum(rate(vllm:request_success_total{host="gpu-01",service="qwen-72b"}[5m]))'
+
+
+async def test_query_bad_window_400(client, admin_headers, vm_mock):
+    route = vm_mock.get("/api/v1/query")
+    resp = await client.get(
+        "/api/metrics/query",
+        params={"template": "vllm_request_rate", "host": "h", "service": "s", "window": "5x"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 400
+    assert not route.called
+
+
 async def test_query_requires_login(client, vm_mock):
     resp = await client.get("/api/metrics/query", params={"template": "cluster_avg_util"})
     assert resp.status_code == 401

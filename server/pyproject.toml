@@ -18,6 +18,7 @@ dependencies = [
     "PyJWT",
     "bcrypt",
     "httpx",
+    "websockets>=12",
 ]
 
 [project.optional-dependencies]

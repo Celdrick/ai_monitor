@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 
 from fastapi import Request
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -16,9 +17,19 @@ class Base(DeclarativeBase):
 
 def make_engine(database_url: str) -> AsyncEngine:
     kwargs: dict = {}
-    if database_url.startswith("sqlite"):
+    is_sqlite = database_url.startswith("sqlite")
+    if is_sqlite:
         kwargs["connect_args"] = {"check_same_thread": False}
-    return create_async_engine(database_url, **kwargs)
+    engine = create_async_engine(database_url, **kwargs)
+    if is_sqlite:
+        # SQLite ignores ON DELETE CASCADE unless foreign keys are enabled per connection.
+        @event.listens_for(engine.sync_engine, "connect")
+        def _enable_sqlite_fk(dbapi_connection, _record) -> None:
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+    return engine
 
 
 def make_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

@@ -74,25 +74,33 @@ services:
   agent-fake-nvidia:
     build: ../agent
     profiles: ["fake"]
-    command: ["ai-monitor-agent", "--fake", "4", "--fake-vendor", "nvidia", "--host", "fake-gpu-01"]
+    command: ["ai-monitor-agent", "--fake", "4", "--fake-vendor", "nvidia", "--fake-vllm", "2", "--host", "fake-gpu-01"]
     environment:
       AI_MONITOR_SERVER_URL: http://server:8000
       AI_MONITOR_AGENT_TOKEN: ${FAKE_NVIDIA_TOKEN:-}
       AI_MONITOR_ADVERTISE_ADDRESS: agent-fake-nvidia:9400
+      AI_MONITOR_LOKI_URL: http://loki:3100
+    volumes:
+      - /var/lib/ai-monitor-agent
     depends_on:
       - server
+      - loki
     restart: unless-stopped
 
   agent-fake-ascend:
     build: ../agent
     profiles: ["fake"]
-    command: ["ai-monitor-agent", "--fake", "8", "--fake-vendor", "ascend", "--host", "fake-npu-01"]
+    command: ["ai-monitor-agent", "--fake", "8", "--fake-vendor", "ascend", "--fake-vllm", "1", "--host", "fake-npu-01"]
     environment:
       AI_MONITOR_SERVER_URL: http://server:8000
       AI_MONITOR_AGENT_TOKEN: ${FAKE_ASCEND_TOKEN:-}
       AI_MONITOR_ADVERTISE_ADDRESS: agent-fake-ascend:9400
+      AI_MONITOR_LOKI_URL: http://loki:3100
+    volumes:
+      - /var/lib/ai-monitor-agent
     depends_on:
       - server
+      - loki
     restart: unless-stopped
 
 volumes:

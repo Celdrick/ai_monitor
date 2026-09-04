@@ -1,4 +1,4 @@
-import { ClusterOutlined, DashboardOutlined, LogoutOutlined, UserOutlined } from '@ant-design/icons'
+import { ApiOutlined, ClusterOutlined, DashboardOutlined, LogoutOutlined, UserOutlined } from '@ant-design/icons'
 import { Button, Layout, Menu, Space, Typography, theme } from 'antd'
 import { useMemo } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
@@ -10,6 +10,7 @@ const { Sider, Header, Content } = Layout
 const MENU_ITEMS = [
   { key: '/', icon: <DashboardOutlined />, label: <Link to="/">总览</Link> },
   { key: '/hosts', icon: <ClusterOutlined />, label: <Link to="/hosts">机器</Link> },
+  { key: '/services', icon: <ApiOutlined />, label: <Link to="/services">服务</Link> },
 ]
 
 export function AppLayout() {
@@ -20,6 +21,7 @@ export function AppLayout() {
 
   const selectedKey = useMemo(() => {
     if (location.pathname.startsWith('/hosts')) return '/hosts'
+    if (location.pathname.startsWith('/services')) return '/services'
     return '/'
   }, [location.pathname])
 

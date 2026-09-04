@@ -79,3 +79,56 @@ def test_build_runtime_real_mode_only_loads_available(monkeypatch):
     monkeypatch.setattr("ai_monitor_agent.__main__.AscendCollector.available", lambda self: True)
     rt = build_runtime(parse_args([]))
     assert [c.name for c in rt.device_collectors] == ["ascend"]
+    assert [s.name for s in rt.sources] == ["manual", "docker", "process"]
+    assert rt.fake_vllm == []
+
+
+def test_parse_args_fake_vllm():
+    args = parse_args(["--fake", "1", "--fake-vllm", "2"])
+    assert args.fake_vllm == 2
+    assert parse_args([]).fake_vllm is None
+
+
+def test_build_runtime_fake_vllm_registers_manual_services(monkeypatch, tmp_path):
+    monkeypatch.setenv("AI_MONITOR_SERVER_URL", "http://s:8000")
+    monkeypatch.setenv("AI_MONITOR_AGENT_TOKEN", "t")
+    monkeypatch.setenv("AI_MONITOR_LOKI_URL", "http://loki:3100")
+    monkeypatch.setenv("AI_MONITOR_STATE_DIR", str(tmp_path / "state"))
+    rt = build_runtime(parse_args(["--fake", "1", "--fake-vllm", "2", "--host", "demo"]))
+    assert rt.config.loki_url == "http://loki:3100"
+    assert rt.config.state_dir == str(tmp_path / "state")
+    assert (tmp_path / "state").is_dir()
+    assert [f.port for f in rt.fake_vllm] == [18000, 18001]
+    assert rt.fake_vllm[1].log_path == str(tmp_path / "state" / "fake-vllm-1.log")
+    # fake mode: only manual discovery (no docker / process)
+    assert [s.name for s in rt.sources] == ["manual"]
+    names = sorted(s.name for s in rt.sources[0].discover())
+    assert names == ["fake-vllm-0", "fake-vllm-1"]
+    assert rt.registry is not None
+
+
+def test_build_runtime_fake_devices_only_disables_docker_and_process(monkeypatch):
+    monkeypatch.setenv("AI_MONITOR_SERVER_URL", "http://s:8000")
+    monkeypatch.setenv("AI_MONITOR_AGENT_TOKEN", "t")
+    rt = build_runtime(parse_args(["--fake", "1"]))
+    assert [s.name for s in rt.sources] == ["manual"]
+
+
+def test_build_runtime_config_discovery_flags_and_env_override(tmp_path, monkeypatch):
+    cfg = tmp_path / "agent.yaml"
+    cfg.write_text(
+        "server_url: http://file:8000\nagent_token: filetok\nloki_url: http://file-loki:3100\n"
+        "state_dir: /tmp/from-file\ndiscovery:\n  docker: false\n  process: true\n"
+        "services:\n  - name: q\n    port: 8001\n"
+    )
+    for var in ("AI_MONITOR_SERVER_URL", "AI_MONITOR_AGENT_TOKEN", "AI_MONITOR_ADVERTISE_ADDRESS", "AI_MONITOR_LISTEN"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("AI_MONITOR_LOKI_URL", "http://env-loki:3100")
+    monkeypatch.setenv("AI_MONITOR_STATE_DIR", str(tmp_path / "env-state"))
+    monkeypatch.setattr("ai_monitor_agent.__main__.NvidiaCollector.available", lambda self: False)
+    monkeypatch.setattr("ai_monitor_agent.__main__.AscendCollector.available", lambda self: False)
+    rt = build_runtime(parse_args(["--config", str(cfg)]))
+    assert rt.config.loki_url == "http://env-loki:3100"
+    assert rt.config.state_dir == str(tmp_path / "env-state")
+    assert [s.name for s in rt.sources] == ["manual", "process"]
+    assert [s.name for s in rt.sources[0].discover()] == ["q"]

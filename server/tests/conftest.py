@@ -15,6 +15,7 @@ def settings(tmp_path) -> Settings:
         admin_username="admin",
         admin_password="admin123",
         vm_url="http://vm.test:8428",
+        loki_url="http://loki.test:3100",
         file_sd_path=str(tmp_path / "file_sd" / "agents.json"),
         agent_offline_seconds=120,
     )

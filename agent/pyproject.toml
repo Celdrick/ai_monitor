@@ -18,6 +18,7 @@ dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2.0",
     "nvidia-ml-py>=12.535",
+    "docker>=7.0",
 ]
 
 [project.optional-dependencies]
