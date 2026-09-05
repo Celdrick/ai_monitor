@@ -46,6 +46,7 @@ class Runtime:
     sources: list = field(default_factory=list)
     fake_vllm: list = field(default_factory=list)
     registry: ServiceRegistry | None = None
+    fake_debug: bool = False
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -54,6 +55,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--fake", type=int, metavar="N", help="serve N synthetic devices instead of real hardware")
     parser.add_argument("--fake-vendor", choices=["nvidia", "ascend"], default="nvidia")
     parser.add_argument("--fake-vllm", type=int, metavar="N", help="start N in-process fake vLLM services")
+    parser.add_argument("--fake-debug", action="store_true", help="synthesize py-spy/nsys/msprof artifacts")
     parser.add_argument("--host", help="host name reported in metrics/heartbeat (default: hostname)")
     parser.add_argument("--log-level", default="INFO")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -131,6 +133,7 @@ def build_runtime(args: argparse.Namespace) -> Runtime:
         sources=sources,
         fake_vllm=fake_servers,
         registry=registry,
+        fake_debug=bool(args.fake_debug),
     )
 
 
@@ -156,6 +159,7 @@ def main(argv: list[str] | None = None) -> None:
         host=rt.host,
         registry=rt.registry,
         fake_vllm=rt.fake_vllm,
+        fake_debug=rt.fake_debug,
     )
     uvicorn.run(app, host=rt.config.listen_host, port=rt.config.listen_port, log_level=str(args.log_level).lower())
 

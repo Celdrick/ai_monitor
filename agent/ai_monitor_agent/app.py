@@ -23,6 +23,8 @@ from .logs.cursors import CursorStore
 from .logs.loki_client import LokiPusher
 from .logs.tailer import LogManager
 from .metrics import AgentMetricsCollector, build_registry, render
+from .control.api import router as control_router
+from .control.tasks import TaskManager
 from .vllm.metrics_proxy import VllmMetricsProxy
 
 log = logging.getLogger(__name__)
@@ -60,6 +62,7 @@ def create_app(
     host: str | None = None,
     registry: ServiceRegistry | None = None,
     fake_vllm: list | None = None,
+    fake_debug: bool = False,
 ) -> FastAPI:
     host = host or socket.gethostname()
     fake_vllm = list(fake_vllm or [])
@@ -148,6 +151,14 @@ def create_app(
     app.state.services = svc_registry
     app.state.heartbeat = heartbeat
     app.state.proxy = proxy
+    app.state.tasks = TaskManager()
+    app.state.profile_snapshots = {}
+    app.state.fake_debug = fake_debug
+    try:
+        os.makedirs(config.artifacts_dir, exist_ok=True)
+    except OSError as exc:
+        log.warning("cannot create artifacts_dir %s: %s", config.artifacts_dir, exc)
+    app.include_router(control_router)
 
     @app.get("/metrics")
     def metrics() -> Response:

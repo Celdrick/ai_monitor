@@ -20,8 +20,18 @@ def _free_port() -> int:
 def test_manual_services_helper(tmp_path):
     services = fake_vllm_manual_services(2, str(tmp_path))
     assert services == [
-        ManualService(name="fake-vllm-0", port=18000, log_path=f"{tmp_path}/fake-vllm-0.log"),
-        ManualService(name="fake-vllm-1", port=18001, log_path=f"{tmp_path}/fake-vllm-1.log"),
+        ManualService(
+            name="fake-vllm-0",
+            port=18000,
+            log_path=f"{tmp_path}/fake-vllm-0.log",
+            profiler_dir=f"{tmp_path}/fake-vllm-0-profile",
+        ),
+        ManualService(
+            name="fake-vllm-1",
+            port=18001,
+            log_path=f"{tmp_path}/fake-vllm-1.log",
+            profiler_dir=f"{tmp_path}/fake-vllm-1-profile",
+        ),
     ]
     assert fake_vllm_manual_services(1, str(tmp_path), base_port=19000)[0].port == 19000
     assert fake_vllm_manual_services(0, str(tmp_path)) == []

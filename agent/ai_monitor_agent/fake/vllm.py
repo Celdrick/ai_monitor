@@ -35,7 +35,9 @@ class FakeVllmServer:
         self.port = port
         self.log_path = log_path
         self.model = model
+        self.profiler_dir = os.path.join(os.path.dirname(log_path) or ".", f"fake-vllm-{index}-profile")
         self.log_interval = 1.0
+        self._profiling = False
         self._rng = random.Random(index + 1)
         self._running = 2.0
         self._waiting = 0.0
@@ -122,6 +124,26 @@ class FakeVllmServer:
         def version() -> dict[str, str]:
             return {"version": "0.11.0-fake"}
 
+        @app.post("/start_profile")
+        def start_profile() -> dict[str, str]:
+            self._profiling = True
+            return {"status": "ok"}
+
+        @app.post("/stop_profile")
+        def stop_profile() -> dict[str, str]:
+            if not getattr(self, "_profiling", False):
+                return {"status": "ok"}
+            self._profiling = False
+            directory = self.profiler_dir
+            os.makedirs(directory, exist_ok=True)
+            path = os.path.join(directory, f"fake-trace-{self.index}.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(
+                    '{"traceEvents":[{"ph":"X","name":"fake_forward","ts":0,"dur":1000,'
+                    f'"pid":{self.index + 1},"tid":1}}],"displayTimeUnit":"ms"}}\n'
+                )
+            return {"status": "ok", "path": path}
+
         return app
 
     def _format_stamp(self) -> str:
@@ -203,6 +225,7 @@ def fake_vllm_manual_services(n: int, state_dir: str, base_port: int = 18000) ->
             name=f"fake-vllm-{i}",
             port=base_port + i,
             log_path=os.path.join(state_dir, f"fake-vllm-{i}.log"),
+            profiler_dir=os.path.join(state_dir, f"fake-vllm-{i}-profile"),
         )
         for i in range(n)
     ]
