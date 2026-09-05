@@ -6,6 +6,8 @@ import { Link, useParams } from 'react-router-dom'
 import { errorMessage } from '../api/client'
 import type { MetricLabels, RangeResult } from '../api/metrics'
 import type { ServiceDetail } from '../api/services'
+import { useAuth } from '../auth/AuthContext'
+import { DebugPanel } from '../components/DebugPanel'
 import { EnvTable } from '../components/EnvTable'
 import { LogViewer } from '../components/LogViewer'
 import { ServiceStatusTag, SourceTag } from '../components/ServicesTable'
@@ -182,20 +184,23 @@ function LogsTab({ service }: { service: ServiceDetail }) {
 export function ServiceDetailPage() {
   const { id: rawId = '' } = useParams<{ id: string }>()
   const id = Number(rawId)
+  const { user } = useAuth()
   const service = useService(Number.isFinite(id) ? id : undefined)
   const s = service.data
+  const isAdmin = user?.role === 'admin'
 
-  const tabs = useMemo(
-    () =>
-      s
-        ? [
-            { key: 'metrics', label: '指标', children: <MetricsTab service={s} /> },
-            { key: 'process', label: '进程', children: <ProcessTab service={s} /> },
-            { key: 'logs', label: '日志', children: <LogsTab service={s} /> },
-          ]
-        : [],
-    [s],
-  )
+  const tabs = useMemo(() => {
+    if (!s) return []
+    const items = [
+      { key: 'metrics', label: '指标', children: <MetricsTab service={s} /> },
+      { key: 'process', label: '进程', children: <ProcessTab service={s} /> },
+      { key: 'logs', label: '日志', children: <LogsTab service={s} /> },
+    ]
+    if (isAdmin) {
+      items.push({ key: 'debug', label: '调试', children: <DebugPanel service={s} /> })
+    }
+    return items
+  }, [s, isAdmin])
 
   return (
     <Space direction="vertical" size={16} style={{ display: 'flex' }}>
