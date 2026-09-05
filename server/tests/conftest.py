@@ -17,6 +17,8 @@ def settings(tmp_path) -> Settings:
         vm_url="http://vm.test:8428",
         loki_url="http://loki.test:3100",
         file_sd_path=str(tmp_path / "file_sd" / "agents.json"),
+        artifacts_dir=str(tmp_path / "artifacts"),
+        debug_poll_interval_seconds=0.05,
         agent_offline_seconds=120,
     )
 

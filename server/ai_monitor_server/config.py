@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     file_sd_path: str = "/file_sd/agents.json"
     agent_offline_seconds: int = 120
     cors_origins: list[str] = []
+    artifacts_dir: str = "/data/artifacts"
+    debug_poll_interval_seconds: float = 2.0
+    artifact_max_bytes: int = 512 * 1024 * 1024
 
 
 @lru_cache

@@ -16,6 +16,7 @@ from .logs.router import router as logs_router
 from .metrics.router import router as metrics_router
 from .metrics.vm_client import VMClient
 from .models import User
+from .debug.router import router as debug_router
 from .services.router import router as services_router
 
 log = logging.getLogger(__name__)
@@ -77,6 +78,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(metrics_router)
     app.include_router(services_router)
     app.include_router(logs_router)
+    app.include_router(debug_router)
     return app
 
 

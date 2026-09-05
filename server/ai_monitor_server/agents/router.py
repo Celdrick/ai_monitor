@@ -17,7 +17,7 @@ from .schemas import (
     HeartbeatRequest,
     ServiceIn,
 )
-from .tokens import generate_agent_token, hash_agent_token
+from .tokens import encrypt_agent_token, generate_agent_token, hash_agent_token
 
 log = logging.getLogger(__name__)
 
@@ -121,9 +121,13 @@ async def _get_or_404(session, agent_id: int) -> Agent:
 
 
 @router.post("", response_model=AgentWithToken, status_code=status.HTTP_201_CREATED)
-async def create_agent(body: AgentCreate, session: SessionDep, _: AdminUser):
+async def create_agent(body: AgentCreate, session: SessionDep, settings: SettingsDep, _: AdminUser):
     token = generate_agent_token()
-    agent = Agent(host=body.host, token_hash=hash_agent_token(token))
+    agent = Agent(
+        host=body.host,
+        token_hash=hash_agent_token(token),
+        token_enc=encrypt_agent_token(token, settings.jwt_secret),
+    )
     session.add(agent)
     try:
         await session.commit()
@@ -136,10 +140,11 @@ async def create_agent(body: AgentCreate, session: SessionDep, _: AdminUser):
 
 
 @router.post("/{agent_id}/rotate-token", response_model=AgentWithToken)
-async def rotate_token(agent_id: int, session: SessionDep, _: AdminUser):
+async def rotate_token(agent_id: int, session: SessionDep, settings: SettingsDep, _: AdminUser):
     agent = await _get_or_404(session, agent_id)
     token = generate_agent_token()
     agent.token_hash = hash_agent_token(token)
+    agent.token_enc = encrypt_agent_token(token, settings.jwt_secret)
     await session.commit()
     return AgentWithToken(id=agent.id, host=agent.host, token=token)
 

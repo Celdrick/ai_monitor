@@ -19,6 +19,7 @@ dependencies = [
     "bcrypt",
     "httpx",
     "websockets>=12",
+    "cryptography>=42",
 ]
 
 [project.optional-dependencies]
