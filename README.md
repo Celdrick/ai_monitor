@@ -13,7 +13,8 @@ GPU/NPU 机器                         监控服务器（docker compose）
 | ai-monitor-agent    |<-- scrape --| VictoriaMetrics（时序，保留 6 个月）|
 |  pynvml / npu-smi   |-- 心跳 ---->| ai-monitor-server（FastAPI）        |
 |  psutil             |             |   PostgreSQL（元数据）              |
-|  :9400/metrics      |-- 日志 ---->| Loki（日志，第二期接入）            |
+|  :9400/metrics      |-- 日志 ---->| Loki（日志）                        |
+|  /control/*         |<-- 调试 ----| data/artifacts（profile / py-spy 等）|
 +---------------------+             | ai-monitor-web（React + nginx）     |
                                     +------------------------------------+
 ```
@@ -53,6 +54,8 @@ docker compose up -d --build victoriametrics loki postgres server web
    ```
 
    脚本自动检测 `nvidia-smi` / `npu-smi` 决定挂载哪种设备，配置写入 `/etc/ai-monitor/agent.yaml`。
+   Docker 模式会加上 `--cap-add=SYS_PTRACE --security-opt seccomp=unconfined`（py-spy 附着进程）。
+   nsys / msprof 需安装在**宿主机**；systemd 模式更容易直接调用这两套工具，容器镜像内通常没有。
 
 3. 约 1 分钟后，总览页面出现该机器并显示为在线。
 
@@ -63,7 +66,9 @@ docker compose up -d --build victoriametrics loki postgres server web
 docker compose --profile fake up -d --build agent-fake-nvidia agent-fake-ascend
 ```
 
-`fake-gpu-01` 模拟 4 张 NVIDIA 卡与 2 个 vLLM 服务，`fake-npu-01` 模拟 8 张 Ascend 卡与 1 个 vLLM 服务；假 vLLM 提供 `/metrics`、`/v1/models`、`/version` 并持续写入含 WARNING/ERROR 的日志。
+`fake-gpu-01` 模拟 4 张 NVIDIA 卡与 2 个 vLLM 服务，`fake-npu-01` 模拟 8 张 Ascend 卡与 1 个 vLLM 服务；假 vLLM 提供 `/metrics`、`/v1/models`、`/version`、`/start_profile`、`/stop_profile` 并持续写入含 WARNING/ERROR 的日志。`--fake-debug` 在无 py-spy/nsys/msprof 时伪造产物，供端到端验证。
+
+第三期起 server 会加密保存 Agent token（`agents.token_enc`）以便回调控制 API。升级前创建的 Agent 需管理员执行一次「轮转 token」，并把新 token 写回 Agent 配置。
 
 ### vLLM 服务监测
 
@@ -72,6 +77,7 @@ docker compose --profile fake up -d --build agent-fake-nvidia agent-fake-ascend
 - **指标**：各服务 `/metrics` 中的 `vllm:*` 指标附加 `host`、`service` 标签后并入 Agent `/metrics`；页面展示请求队列、Token 吞吐、TTFT/TPOT/E2E 分位、KV cache、抢占。
 - **日志**：`docker logs` 或日志文件推送 Loki（保留 180 天），流标签 `host, service, source, level`；`level` 由 Agent 解析（vLLM / uvicorn / python logging 格式，Traceback 续行继承前一行级别）。页面支持实时 tail、级别筛选与关键词检索。
 - **进程信息**：启动参数、工作目录、环境变量（名称含 `KEY/TOKEN/SECRET/PASSWORD` 的值在 Agent 侧脱敏）、模型、vLLM 版本。
+- **调试**（仅 admin）：服务详情「调试」Tab 可对运行中进程触发 torch profiler、py-spy dump/record、nsys（NVIDIA）、msprof（Ascend）。工具不在 PATH 时按钮禁用。产物以下载为主；Chrome / torch trace 下载后用 [ui.perfetto.dev](https://ui.perfetto.dev) 打开（公网 Perfetto 无法拉取内网文件）。
 
 若宿主机 8080/8000/8428/3100 端口被占用，在 `.env` 中修改 `WEB_PORT` / `SERVER_PORT` / `VM_PORT` / `LOKI_PORT`。
 
@@ -112,6 +118,6 @@ cd web && npm install && npm run dev             # /api 代理到 http://localho
 ## 分期
 
 1. 基础监控（已完成）：硬件/主机指标、机器注册与心跳、认证、总览与机器详情、compose 部署。
-2. vLLM 监测（本期）：服务发现、`/metrics` 透传、进程信息、日志到 Loki、服务详情与实时日志。
-3. 调试能力：torch profiler、py-spy、nsys、msprof 远程触发与产物管理。
+2. vLLM 监测（已完成）：服务发现、`/metrics` 透传、进程信息、日志到 Loki、服务详情与实时日志。
+3. 调试能力（本期）：torch profiler、py-spy、nsys、msprof 远程触发与产物下载。
 4. 企业能力：告警与通知、利用率报表、审计与用户管理。

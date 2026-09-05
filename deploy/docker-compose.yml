@@ -74,7 +74,7 @@ services:
   agent-fake-nvidia:
     build: ../agent
     profiles: ["fake"]
-    command: ["ai-monitor-agent", "--fake", "4", "--fake-vendor", "nvidia", "--fake-vllm", "2", "--host", "fake-gpu-01"]
+    command: ["ai-monitor-agent", "--fake", "4", "--fake-vendor", "nvidia", "--fake-vllm", "2", "--fake-debug", "--host", "fake-gpu-01"]
     environment:
       AI_MONITOR_SERVER_URL: http://server:8000
       AI_MONITOR_AGENT_TOKEN: ${FAKE_NVIDIA_TOKEN:-}
@@ -90,7 +90,7 @@ services:
   agent-fake-ascend:
     build: ../agent
     profiles: ["fake"]
-    command: ["ai-monitor-agent", "--fake", "8", "--fake-vendor", "ascend", "--fake-vllm", "1", "--host", "fake-npu-01"]
+    command: ["ai-monitor-agent", "--fake", "8", "--fake-vendor", "ascend", "--fake-vllm", "1", "--fake-debug", "--host", "fake-npu-01"]
     environment:
       AI_MONITOR_SERVER_URL: http://server:8000
       AI_MONITOR_AGENT_TOKEN: ${FAKE_ASCEND_TOKEN:-}

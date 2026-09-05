@@ -9,6 +9,7 @@
 #   --log-dir /var/log/vllm      vLLM 日志文件所在目录，可重复；Docker 模式会以只读方式挂载进容器
 #
 # 两种模式都会写入 /etc/ai-monitor/agent.yaml（已存在则不覆盖）。手动登记 nohup 启动的 vLLM 请编辑该文件的 services 段。
+# Docker 模式会加 SYS_PTRACE 以便 py-spy 附着进程。nsys / msprof 需装在宿主机；systemd 模式更容易直接调用这两套工具。
 set -euo pipefail
 
 MODE=""
@@ -113,12 +114,14 @@ install_docker() {
   docker rm -f ai-monitor-agent >/dev/null 2>&1 || true
   docker run -d --name ai-monitor-agent --restart=always \
     --net=host --pid=host \
+    --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
     -v "$CONFIG_DIR":"$CONFIG_DIR":ro \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v /var/lib/ai-monitor-agent:/var/lib/ai-monitor-agent \
     ${dev_args[@]+"${dev_args[@]}"} \
     "$IMAGE"
-  echo "started container ai-monitor-agent (metrics on :9400)"
+  echo "started container ai-monitor-agent (metrics on :9400; SYS_PTRACE for py-spy)"
+  echo "note: install nsys / msprof on the host; systemd mode can invoke them more easily than Docker."
 }
 
 install_systemd() {
