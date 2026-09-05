@@ -100,6 +100,14 @@ docker compose --profile fake up -d --build agent-fake-nvidia agent-fake-ascend
 - 停掉 `agent-fake-ascend` 约 2 分钟后对应服务变为 `unknown`，重启后恢复 `running`。
 - Playwright：总览出现服务卡片；`/services` 列出 3 行；服务详情指标 Tab 7 张图；日志 Tab 实时出现 INFO/WARNING，无 JS 错误。
 
+### 第三期已验证（2026-09-05）
+
+- `agent` 156 个测试、`server` 131 个测试、`web` 41 个测试全部通过。
+- compose `--profile fake` 使用 `--fake-debug`；升级后对已有 Agent 轮转 token，server 即可回调控制 API。
+- admin 对 `fake-gpu-01` / `fake-vllm-0`：`profile_start` → `profile_stop` 得到 `fake-trace-0.json` 并可下载；`pyspy_dump` 得到 `.txt`。
+- `GET /api/debug/capabilities`：NVIDIA 主机 `msprof=false`，`pyspy/nsys/profile=true`。
+- viewer 创建任务与下载产物均为 403；可列出任务。服务详情「调试」Tab 仅 admin 渲染（vitest）。
+
 ## 开发
 
 ```bash
